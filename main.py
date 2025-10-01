@@ -1,58 +1,76 @@
-import sys
+import sys, os
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton, QLabel,
     QListWidget, QFileDialog, QMessageBox, QLineEdit, QHBoxLayout
 )
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QDropEvent, QDragEnterEvent
+from PyQt5.QtCore import Qt
 from PyPDF2 import PdfMerger, PdfReader, PdfWriter
 
 
 class PDFToolkit(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("📑 PDF Toolkit - Black & White")
-        self.setGeometry(200, 200, 600, 500)
+        self.setWindowTitle("📑 PDF Toolkit - Modern Edition")
+        self.resize(700, 550)
 
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #ffffff;
-                color: #000000;
-                font-size: 14px;
-            }
-            QPushButton {
-                background-color: #000000;
-                color: #ffffff;
-                border-radius: 6px;
-                padding: 8px;
-            }
-            QPushButton:hover {
-                background-color: #444444;
-            }
-            QListWidget {
-                border: 1px solid #000000;
-                padding: 5px;
-            }
-            QLineEdit {
-                border: 1px solid #000000;
-                padding: 5px;
-            }
-        """)
+        # Default theme is light
+        self.is_dark = False
+        self.light_theme = """
+            QWidget { background-color: #ffffff; color: #000000; font-size: 14px; }
+            QPushButton { background-color: #000000; color: #ffffff; border-radius: 6px; padding: 8px; }
+            QPushButton:hover { background-color: #444444; }
+            QListWidget, QLineEdit { border: 1px solid #000000; padding: 5px; }
+        """
+        self.dark_theme = """
+            QWidget { background-color: #000000; color: #ffffff; font-size: 14px; }
+            QPushButton { background-color: #ffffff; color: #000000; border-radius: 6px; padding: 8px; }
+            QPushButton:hover { background-color: #cccccc; }
+            QListWidget, QLineEdit { border: 1px solid #ffffff; padding: 5px; background: #111111; color: #ffffff; }
+        """
+        self.setStyleSheet(self.light_theme)
+
+        # Enable drag & drop
+        self.setAcceptDrops(True)
 
         layout = QVBoxLayout()
 
         # Title
-        title = QLabel("PDF Toolkit - Black & White Edition")
+        title = QLabel("PDF Toolkit - Black & White Modern Edition")
         title.setFont(QFont("Arial", 16, QFont.Bold))
         layout.addWidget(title)
 
-        # Upload Button
+        # Upload and clear buttons
+        top_buttons = QHBoxLayout()
         self.upload_btn = QPushButton("Upload PDF(s)")
         self.upload_btn.clicked.connect(self.upload_files)
-        layout.addWidget(self.upload_btn)
+        self.clear_btn = QPushButton("Clear All")
+        self.clear_btn.clicked.connect(self.clear_files)
+        top_buttons.addWidget(self.upload_btn)
+        top_buttons.addWidget(self.clear_btn)
+        layout.addLayout(top_buttons)
 
         # File List
         self.file_list = QListWidget()
+        self.file_list.currentItemChanged.connect(self.show_metadata)
         layout.addWidget(self.file_list)
+
+        # File management buttons
+        file_buttons = QHBoxLayout()
+        self.remove_btn = QPushButton("Remove Selected")
+        self.remove_btn.clicked.connect(self.remove_file)
+        self.up_btn = QPushButton("Move Up")
+        self.up_btn.clicked.connect(self.move_up)
+        self.down_btn = QPushButton("Move Down")
+        self.down_btn.clicked.connect(self.move_down)
+        file_buttons.addWidget(self.remove_btn)
+        file_buttons.addWidget(self.up_btn)
+        file_buttons.addWidget(self.down_btn)
+        layout.addLayout(file_buttons)
+
+        # Metadata label
+        self.meta_label = QLabel("Select a file to see metadata")
+        layout.addWidget(self.meta_label)
 
         # Merge Button
         self.merge_btn = QPushButton("Merge PDFs")
@@ -85,14 +103,81 @@ class PDFToolkit(QWidget):
         self.watermark_btn.clicked.connect(self.add_watermark)
         layout.addWidget(self.watermark_btn)
 
-        self.setLayout(layout)
+        # Dark/Light mode toggle
+        self.theme_btn = QPushButton("🌙 Toggle Dark/Light Mode")
+        self.theme_btn.clicked.connect(self.toggle_theme)
+        layout.addWidget(self.theme_btn)
 
+        self.setLayout(layout)
+        self.center_window()
+
+    # Center the window
+    def center_window(self):
+        qr = self.frameGeometry()
+        cp = QApplication.desktop().availableGeometry().center()
+        qr.moveCenter(cp)
+        self.move(qr.topLeft())
+
+    # Drag & Drop events
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event: QDropEvent):
+        for url in event.mimeData().urls():
+            file_path = url.toLocalFile()
+            if file_path.lower().endswith(".pdf"):
+                self.file_list.addItem(file_path)
+        if self.file_list.count() >= 2:
+            self.merge_btn.setEnabled(True)
+
+    # File upload
     def upload_files(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Select PDF files", "", "PDF Files (*.pdf)")
         if files:
             self.file_list.addItems(files)
             if self.file_list.count() >= 2:
                 self.merge_btn.setEnabled(True)
+
+    def clear_files(self):
+        self.file_list.clear()
+        self.merge_btn.setEnabled(False)
+        self.meta_label.setText("Select a file to see metadata")
+
+    def remove_file(self):
+        selected = self.file_list.currentRow()
+        if selected >= 0:
+            self.file_list.takeItem(selected)
+            if self.file_list.count() < 2:
+                self.merge_btn.setEnabled(False)
+        else:
+            QMessageBox.warning(self, "Error", "No file selected to remove!")
+
+    def move_up(self):
+        row = self.file_list.currentRow()
+        if row > 0:
+            item = self.file_list.takeItem(row)
+            self.file_list.insertItem(row - 1, item)
+            self.file_list.setCurrentItem(item)
+
+    def move_down(self):
+        row = self.file_list.currentRow()
+        if row < self.file_list.count() - 1:
+            item = self.file_list.takeItem(row)
+            self.file_list.insertItem(row + 1, item)
+            self.file_list.setCurrentItem(item)
+
+    def show_metadata(self):
+        item = self.file_list.currentItem()
+        if item:
+            file = item.text()
+            try:
+                reader = PdfReader(file)
+                pages = len(reader.pages)
+                size = os.path.getsize(file) / 1024  # in KB
+                self.meta_label.setText(f"📄 Pages: {pages} | 📦 Size: {size:.1f} KB")
+            except Exception:
+                self.meta_label.setText("⚠️ Could not read metadata")
 
     def get_selected_file(self):
         selected = self.file_list.currentItem()
@@ -171,6 +256,14 @@ class PDFToolkit(QWidget):
                     QMessageBox.information(self, "Success", "Watermark added successfully!")
                 except Exception as e:
                     QMessageBox.warning(self, "Error", str(e))
+
+    def toggle_theme(self):
+        if self.is_dark:
+            self.setStyleSheet(self.light_theme)
+            self.is_dark = False
+        else:
+            self.setStyleSheet(self.dark_theme)
+            self.is_dark = True
 
 
 if __name__ == "__main__":
